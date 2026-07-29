@@ -7,10 +7,73 @@ import pandas as pd
 from sigfig import round as sf_round
 from itables import to_html_datatable
 from scenario_evaluation_criteria import load_criteria
-from scenario_evaluation_criteria.preprocessed import load_criteria_combined
+from scenario_evaluation_criteria.preprocessed import (
+    load_criteria_combined,
+    region_mapping_from_definition,
+)
 from scenario_evaluation_criteria.formatting import format_sources, insert_citations
 
-criteria_combined = load_criteria_combined().query("region == 'World'")
+# Region groupings for the regionalised tables, sourced from
+# IAMConsortium/common-definitions via region-definitions/nomenclature.yaml
+# (see that file for why this isn't a regular package dependency).
+REGION_DEFINITIONS = "region-definitions/definitions"
+
+# One native-region version per model, chosen explicitly (rather than
+# picked automatically) as the latest version of each model, excluding
+# regionalised model variants (e.g. GCAM-Europe, GCAM-KSA, WITCH...EU28,
+# POLES ENGAGE) and, for combined models, the combination only (e.g.
+# REMIND-MAgPIE rather than its standalone REMIND predecessor). Judged
+# from the file/hierarchy names under common-definitions'
+# definitions/region/native_regions/ at the pinned commit (see
+# region-definitions/nomenclature.yaml); bump when that pin is updated.
+MODEL_HIERARCHIES = [
+    "AIM 3.0",
+    "C3IAM 3.0",
+    "CGEM-ESM 1.0",
+    "COFFEE 1.6",
+    "GCAM 9.1",
+    "GEM-E3 V2026",
+    "IMACLIM 2.0",
+    "IMAGE 3.4",
+    "MEESA v1.4",
+    "MESSAGEix-GLOBIOM 2.1-R12",
+    "MINES 0.1.0",
+    "OPEN-PROM 2.2",
+    "POLES 2.4",
+    "PROMETHEUS V1",
+    "REMIND-MAgPIE 3.7-4.14",
+    "WITCH 6.0",
+]
+
+region_mapping_r5 = region_mapping_from_definition(REGION_DEFINITIONS, hierarchy="R5")
+region_mapping_r9 = region_mapping_from_definition(REGION_DEFINITIONS, hierarchy="R9")
+region_mapping_r10 = region_mapping_from_definition(REGION_DEFINITIONS, hierarchy="R10")
+region_mapping_by_model = {
+    model: region_mapping_from_definition(REGION_DEFINITIONS, hierarchy=model)
+    for model in MODEL_HIERARCHIES
+}
+region_mapping = {
+    **region_mapping_r5,
+    **region_mapping_r9,
+    **region_mapping_r10,
+    **{
+        region: codes
+        for model_regions in region_mapping_by_model.values()
+        for region, codes in model_regions.items()
+    },
+}
+region_tabs = [
+    ("R5", set(region_mapping_r5)),
+    ("R9", set(region_mapping_r9)),
+    ("R10", set(region_mapping_r10)),
+    *sorted(
+        (model_name, set(model_regions))
+        for model_name, model_regions in region_mapping_by_model.items()
+    ),
+]
+
+criteria_combined_all = load_criteria_combined(region_mapping=region_mapping)
+criteria_combined = criteria_combined_all.query("region == 'World'")
 criteria_types, criteria_meta, sources = load_criteria(
     ["criteria-types", "criteria-descriptions", "sources"],
 ).values()
@@ -19,6 +82,41 @@ sources_formatted = format_sources(sources)
 
 def _fmt(text):
     return insert_citations(text, sources_formatted, "").replace("\n", "<br>")
+
+
+def _render_tabbed_set(tabs, group_id):
+    """Hand-render a pymdownx.tabbed "alternate style" tab set as raw HTML.
+
+    ``=== "Tab"`` markdown content is reparsed by a nested block-processor
+    call that never runs Python-Markdown's raw-HTML preprocessor (that
+    preprocessor only ever sees the whole page once, before any nested
+    block reparsing) — so multi-line raw HTML placed inside a tab (like an
+    itables datatable) gets escaped/wrapped in a stray ``<p>`` instead of
+    preserved verbatim. Emitting the same DOM structure directly, as one
+    top-level raw HTML block, sidesteps that: top-level raw HTML *is*
+    preserved untouched (the same reason the World-only table above renders
+    correctly). The structure/classes below match pymdownx.tabbed's
+    "alternate_style" output exactly, so mkdocs-material's tab CSS and
+    "content.tabs.link" behaviour keep working unchanged.
+    """
+    inputs = "".join(
+        f'<input{" checked=\"checked\"" if i == 0 else ""} '
+        f'id="__tabbed_{group_id}_{i + 1}" name="__tabbed_{group_id}" type="radio" />'
+        for i in range(len(tabs))
+    )
+    labels = "".join(
+        f'<label for="__tabbed_{group_id}_{i + 1}">{label}</label>'
+        for i, (label, _) in enumerate(tabs)
+    )
+    blocks = "".join(
+        f'<div class="tabbed-block">\n{content}\n</div>\n' for _, content in tabs
+    )
+    return (
+        f'<div class="tabbed-set tabbed-alternate" data-tabs="{group_id}:{len(tabs)}">'
+        f'{inputs}<div class="tabbed-labels">{labels}</div>\n'
+        f"<div class=\"tabbed-content\">\n{blocks}</div>\n"
+        f"</div>\n"
+    )
 
 
 def _fmt_num(v):
@@ -96,6 +194,7 @@ def _pivot(df):
 
 # Ordered list of criteria within the combined df (preserves CSV row order)
 ordered_criteria = list(dict.fromkeys(criteria_combined["criterion"]))
+regional_tab_group_counter = 0
 
 for crit_type in criteria_types:
     type_criteria = [c for c in ordered_criteria if c.startswith(f"{crit_type}|")]
@@ -121,9 +220,35 @@ for crit_type in criteria_types:
         if jt := meta.get("justification_threshold"):
             print(f"**Why this threshold?** {_fmt(jt)}\n")
 
-        df = _pivot(criteria_combined[criteria_combined["criterion"] == criterion].copy())
-        table_html = to_html_datatable(df, connected=True, style="width:100%")
-        print(f"<div>\n{table_html}\n</div>\n")
+        world_df = _pivot(
+            criteria_combined[criteria_combined["criterion"] == criterion].copy()
+        ).drop(columns="Region")
+        world_html = to_html_datatable(world_df, connected=True, style="width:100%")
+        world_body = f"<div>\n{world_html}\n</div>"
+
+        regional_rows = criteria_combined_all[
+            (criteria_combined_all["criterion"] == criterion)
+            & (criteria_combined_all["region"] != "World")
+        ]
+        if regional_rows.empty:
+            print(f"{world_body}\n")
+        else:
+            tabs = [("World", world_body)]
+            for tab_label, tab_regions in region_tabs:
+                tab_df = regional_rows[regional_rows["region"].isin(tab_regions)].copy()
+                if tab_df.empty:
+                    continue
+                # Native model regions are named "<model>|<region>"; the
+                # model prefix is redundant once the region is shown in
+                # that model's own tab.
+                tab_df["region"] = tab_df["region"].str.rsplit("|", n=1).str[-1]
+                tab_pivoted = _pivot(tab_df)
+                tab_html = to_html_datatable(
+                    tab_pivoted, connected=True, style="width:100%"
+                )
+                tabs.append((tab_label, f"<div>\n{tab_html}\n</div>"))
+            regional_tab_group_counter += 1
+            print(_render_tabbed_set(tabs, regional_tab_group_counter))
 
         if note := meta.get("note"):
             print(f"!!! note\n\n    {_fmt(note).replace("\n", "\n    ")}\n")

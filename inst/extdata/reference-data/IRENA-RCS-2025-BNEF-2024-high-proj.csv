@@ -1,0 +1,20 @@
+# source: IRENA-RCS-2025
+# source2: BNEF-2024
+# description: Custom projections based on {{source}} and {{source2}} with details documented in the description of the `Feasibility Concern|Solar PV Capacity` and `Feasibility Concern|Wind Capacity` criteria.
+variable,year,region,unit,value
+Capacity|Electricity|Solar,2025,CHN,GW,2189.1996
+Capacity|Electricity|Solar,2025,IND,GW,220.60682
+Capacity|Electricity|Solar,2030,CHN,GW,7391.5996
+Capacity|Electricity|Solar,2030,IND,GW,819.80682
+Capacity|Electricity|Wind,2025,CHN,GW,984.53152
+Capacity|Electricity|Wind,2025,IND,GW,81.14848
+Capacity|Electricity|Wind,2025,USA,GW,234.15378
+Capacity|Electricity|Wind,2030,CHN,GW,2243.85952
+Capacity|Electricity|Wind,2030,IND,GW,181.38848
+Capacity|Electricity|Wind,2030,USA,GW,404.67378
+Capacity|Electricity|Wind|Onshore,2025,CHN,GW,897.29346
+Capacity|Electricity|Wind|Onshore,2025,IND,GW,81.14848
+Capacity|Electricity|Wind|Onshore,2025,USA,GW,231.67396
+Capacity|Electricity|Wind|Onshore,2030,CHN,GW,1961.29346
+Capacity|Electricity|Wind|Onshore,2030,IND,GW,181.38848
+Capacity|Electricity|Wind|Onshore,2030,USA,GW,388.47396

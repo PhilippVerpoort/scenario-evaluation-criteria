@@ -37,6 +37,9 @@ packages = [
 generate-setup-file = false
 script = "scripts/build_copy_extdata.py"
 
+# IAMConsortium/common-definitions (region definitions for docs/tests) is
+# fetched on demand, via region-definitions/nomenclature.yaml 
+# (nomenclature-iamc's external repository mechanism).
 [tool.poetry.group.tests.dependencies]
 pytest = "^8.0"
 pybtex = "^0.25.1"
